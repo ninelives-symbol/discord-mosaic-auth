@@ -37,5 +37,6 @@ Users enter the verification channel and register their Symbol address containin
 
 Once the user's address has been registered they can request an authorisation challenge string from the bot using the <code>!request_challenge</code> command. The bot will then print a random 12 character string which is required to prove that the Discord user is the owner of the address that they have registered along with the Symbol address that the message has to be sent to. The user then sends an encrypted message containing the challenge back to the bot address. Once the message has been received the bot will decrypt the message and check that the challenge string matches that assigned by the bot and stored in the database. If the message matches then the users Symbol address is checked and the relevant role(s) are assigned to the Discord user based on the mosaics they own. The bot will send a DM to the user reporting that the role(s) have been successfully assigned.
 
-
+## Limitations
+At present there is an issue with decryption. It will only decrypt messages sent from the official Desktop (and mobile?) wallet(s). This will be fixed in a future update.
 
