@@ -4,12 +4,7 @@
 symbol-sdk-python<br>
 discord<br>
 binascii<br>
-requests<br>
-random<br>
-string<br>
-time<br>
 aiosqlite<br>
-asyncio<br>
 base64<br>
 
 ## Introduction
