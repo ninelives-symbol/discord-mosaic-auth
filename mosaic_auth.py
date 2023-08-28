@@ -54,7 +54,7 @@ message_encoder = MessageEncoder(keypair)
 
 
 # Create Discord bot
-intents = discord.Intents.default()
+intents = discord.Intents.all() 
 intents.typing = False
 intents.presences = False
 intents.members = True
@@ -141,6 +141,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.command(name="register")
 async def register(ctx, *args):
+	print(f"Register command triggered with arguments: {args}")
 	if not args:
 		await ctx.send("You must provide your Symbol address. Use the `!register <your_address>` command to register.")
 		return
@@ -170,6 +171,10 @@ async def request_challenge(ctx):
 	challenge = f"{user_id:016x}" + generate_random_string()
 	challenges[user_id] = (challenge, time.time())
 	await ctx.send(f"Your challenge is: {challenge}\nPlease send an encrypted message to the bot's address {bot_address} with this challenge as the message payload.")
+
+@bot.event
+async def on_command_error(ctx, error):
+    await ctx.send(f"An error occurred: {str(error)}")
 
 @bot.event
 async def on_ready():
