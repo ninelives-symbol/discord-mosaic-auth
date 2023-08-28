@@ -248,6 +248,8 @@ async def handle_incoming_transaction(transaction):
 		else:
 			print("Message is not in hexadecimal format.")
 			next
+		
+		print(tx_message[0])
 		if tx_message[0] == 0x01: # Message is encrypted
 		
 			print(f"Transaction message: {tx_message}")
@@ -275,9 +277,36 @@ async def handle_incoming_transaction(transaction):
 							await user.send(f"Challenge failed or expired. Access denied.")
 					else:
 						await user.send(f"No active challenge found. Access denied.")
-        				
+        		
 			except Exception as e:
 				print(f"Exception occurred during verification: {e}")
+		elif tx_message[0] == 48:
+			try:
+				print("Verifying message...")
+				print(f"Sender address: {sender_address}")
+        
+				encrypted_payload = unhexlify(tx_message.decode('utf8'))
+				sendpubkey = PublicKey(unhexlify(transaction['transaction']['signerPublicKey']))
+				(verified, plain_message) = message_encoder.try_decode(sendpubkey, encrypted_payload)
+				plain_message = plain_message.decode('utf-8')
+				print(f"Verification result: {verified}")
+				print(f"Plaintext string: {plain_message}")
+				
+				if verified:
+					# Verify message contains challenge
+					challenge_data = challenges.get(discord_id)
+					if challenge_data is not None:
+						challenge, timestamp = challenge_data
+						if plain_message == challenge and (time.time() - timestamp) < challenge_lifetime:
+							await grant_mosaic_holder_role(user, sendpubkey)
+						else:
+							await user.send(f"Challenge failed or expired. Access denied.")
+					else:
+						await user.send(f"No active challenge found. Access denied.")
+        		
+			except Exception as e:
+				print(f"Exception occurred during verification: {e}")			
+				
 		else:
 			print("Message is not encrypted")
 	else:
