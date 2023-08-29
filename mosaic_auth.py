@@ -250,7 +250,7 @@ async def handle_incoming_transaction(transaction):
 			next
 		
 		print(tx_message[0])
-		if tx_message[0] == 0x01: # Message is encrypted
+		if tx_message[0] == 0x01: # Message is encrypted using deprecated
 		
 			print(f"Transaction message: {tx_message}")
     
@@ -280,7 +280,7 @@ async def handle_incoming_transaction(transaction):
         		
 			except Exception as e:
 				print(f"Exception occurred during verification: {e}")
-		elif tx_message[0] == 48:
+		else:
 			try:
 				print("Verifying message...")
 				print(f"Sender address: {sender_address}")
