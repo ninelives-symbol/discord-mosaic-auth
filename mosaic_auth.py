@@ -307,8 +307,6 @@ async def handle_incoming_transaction(transaction):
 			except Exception as e:
 				print(f"Exception occurred during verification: {e}")			
 				
-		else:
-			print("Message is not encrypted")
 	else:
 		print(f"Transaction {transaction['meta']['hash']} does not contain a message.")
 
