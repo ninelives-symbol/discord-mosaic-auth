@@ -19,6 +19,9 @@ address_to_discord_id = {}
 challenge_lifetime = 300
 
 
+class InvalidMappingFormatError(Exception):
+    pass
+
 class MosaicRoleMapper:
     def __init__(self, mapping_file):
         self.mosaic_roles = {}
@@ -26,9 +29,13 @@ class MosaicRoleMapper:
 
     def load_mapping(self, mapping_file):
         with open(mapping_file, 'r') as f:
-            for line in f:
+            for line_num, line in enumerate(f, start=1):
                 line = line.strip()
                 if line:
+                    if ':' not in line:
+                        raise InvalidMappingFormatError(
+                            f"Invalid format in line {line_num}: {line}. Expected format: mosaic_id:role"
+                        )
                     mosaic_id, role = line.split(":")
                     self.mosaic_roles[mosaic_id.strip()] = role.strip()
 
@@ -330,103 +337,106 @@ class DiscordBot(commands.Bot):
                                 await user.send(
                                     f"Ownership of mosaic {mosaic_id} confirmed. Authentication successful! You have been granted the {role_name} role.")
 
+def main():
+    network = 'testnet'  # Can update to mainnet
+    node_url = "http://mikun-testnet.tk:3000"  # Update if needed
+    private_key = os.getenv('ACCOUNT_PRIVATE_KEY')
 
-network = 'testnet'  # Can update to mainnet
-node_url = "http://mikun-testnet.tk:3000"  # Update if needed
-private_key = os.getenv('ACCOUNT_PRIVATE_KEY')
+    if private_key is None:
+        print("Error: The environment variable ACCOUNT_PRIVATE_KEY is not set.")
+        sys.exit(1)
 
-if private_key is None:
-    print("Error: The environment variable ACCOUNT_PRIVATE_KEY is not set.")
-    sys.exit(1)
+    # Instantiate components
+    mapping_file = sys.argv[1]
+    mosaic_role_mapper = MosaicRoleMapper(mapping_file)
+    bot_token = os.environ['DISCORD_BOT_TOKEN']
+    symbol_sdk_setup = SymbolSDKSetup(network, node_url, private_key)
 
-# Instantiate components
-mapping_file = sys.argv[1]
-mosaic_role_mapper = MosaicRoleMapper(mapping_file)
-bot_token = os.environ['DISCORD_BOT_TOKEN']
-symbol_sdk_setup = SymbolSDKSetup(network, node_url, private_key)
+    db_file = "verification.db"
+    db_manager = DatabaseManager(db_file)
 
-db_file = "verification.db"
-db_manager = DatabaseManager(db_file)
+    challenges = {}  # Define the challenges dictionary
 
-challenges = {}  # Define the challenges dictionary
+    intents = discord.Intents.all()
+    intents.typing = False
+    intents.presences = False
+    intents.members = True
 
-intents = discord.Intents.all()
-intents.typing = False
-intents.presences = False
-intents.members = True
-
-bot_prefix = '!'
-bot = DiscordBot(command_prefix=bot_prefix, intents=intents,
-                 db_manager=db_manager, mosaic_role_mapper=mosaic_role_mapper,
-                 symbol_sdk_setup=symbol_sdk_setup)
-
-
-# For generating random challenge
-def generate_random_string(length=12):
-    return ''.join(
-        random.choices(string.ascii_letters + string.digits, k=length))
+    bot_prefix = '!'
+    bot = DiscordBot(command_prefix=bot_prefix, intents=intents,
+                     db_manager=db_manager, mosaic_role_mapper=mosaic_role_mapper,
+                     symbol_sdk_setup=symbol_sdk_setup)
 
 
-def is_hex(s):
-    try:
-        int(s, 16)
-        return True
-    except ValueError:
-        return False
+    # For generating random challenge
+    def generate_random_string(length=12):
+        return ''.join(
+            random.choices(string.ascii_letters + string.digits, k=length))
 
 
-@bot.command(name='request_challenge')
-async def request_challenge(ctx):
-    user_id = ctx.author.id
-    user_address = await bot.db_manager.get_address_by_discord_id(user_id)
-    if user_address is None:
-        await ctx.send(
-            "You must register before you can request a challenge. Use the `!register` command to register.")
-        return
-    if user_id in challenges:
-        challenge, timestamp = challenges[user_id]
-        if time.time() - timestamp < challenge_lifetime:
+    def is_hex(s):
+        try:
+            int(s, 16)
+            return True
+        except ValueError:
+            return False
+
+
+    @bot.command(name='request_challenge')
+    async def request_challenge(ctx):
+        user_id = ctx.author.id
+        user_address = await bot.db_manager.get_address_by_discord_id(user_id)
+        if user_address is None:
             await ctx.send(
-                f"You already have an active challenge: {challenge}. It will expire in {int(challenge_lifetime - (time.time() - timestamp))} seconds.")
+                "You must register before you can request a challenge. Use the `!register` command to register.")
+            return
+        if user_id in challenges:
+            challenge, timestamp = challenges[user_id]
+            if time.time() - timestamp < challenge_lifetime:
+                await ctx.send(
+                    f"You already have an active challenge: {challenge}. It will expire in {int(challenge_lifetime - (time.time() - timestamp))} seconds.")
+                return
+
+        challenge = f"{user_id:016x}" + generate_random_string()
+        challenges[user_id] = (challenge, time.time())
+        await ctx.send(
+            f"Your challenge is: {challenge}\nPlease send an encrypted message to the bot's address {bot.symbol_sdk_setup.bot_address} with this challenge as the message payload.")
+
+
+    @bot.event
+    async def on_command_error(ctx, error):
+        await ctx.send(f"An error occurred: {str(error)}")
+
+
+    @bot.event
+    async def on_ready():
+        print(f'{bot.user.name} has connected to Discord!')
+        await bot.db_manager.create_database()
+        bot.loop.create_task(
+            bot.monitor_transactions())  # Start monitoring transactions
+
+
+    @bot.command(name="register")
+    async def register(ctx, *args):
+        print(f"Register command triggered with arguments: {args}")
+        if not args:
+            await ctx.send(
+                "You must provide your Symbol address. Use the `!register <your_address>` command to register.")
             return
 
-    challenge = f"{user_id:016x}" + generate_random_string()
-    challenges[user_id] = (challenge, time.time())
-    await ctx.send(
-        f"Your challenge is: {challenge}\nPlease send an encrypted message to the bot's address {bot.symbol_sdk_setup.bot_address} with this challenge as the message payload.")
+        user_id = ctx.message.author.id
+        symbol_address = args[0].upper().strip()
+        addr = Address(symbol_address)
+        formatted_address = str(addr)
+        try:
+            await bot.db_manager.store_symbol_address(user_id, formatted_address)
+            await ctx.send(
+                f"Successfully registered Symbol address: {formatted_address}")
+        except aiosqlite.IntegrityError:
+            await ctx.send(f"Address {formatted_address} is already registered.")
 
 
-@bot.event
-async def on_command_error(ctx, error):
-    await ctx.send(f"An error occurred: {str(error)}")
+    bot.run(bot_token)
 
-
-@bot.event
-async def on_ready():
-    print(f'{bot.user.name} has connected to Discord!')
-    await bot.db_manager.create_database()
-    bot.loop.create_task(
-        bot.monitor_transactions())  # Start monitoring transactions
-
-
-@bot.command(name="register")
-async def register(ctx, *args):
-    print(f"Register command triggered with arguments: {args}")
-    if not args:
-        await ctx.send(
-            "You must provide your Symbol address. Use the `!register <your_address>` command to register.")
-        return
-
-    user_id = ctx.message.author.id
-    symbol_address = args[0].upper().strip()
-    addr = Address(symbol_address)
-    formatted_address = str(addr)
-    try:
-        await bot.db_manager.store_symbol_address(user_id, formatted_address)
-        await ctx.send(
-            f"Successfully registered Symbol address: {formatted_address}")
-    except aiosqlite.IntegrityError:
-        await ctx.send(f"Address {formatted_address} is already registered.")
-
-
-bot.run(bot_token)
+if __name__ == "__main__":
+    main()
